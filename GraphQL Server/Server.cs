@@ -4,6 +4,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Threading;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace GraphQL_Server
 {
@@ -33,6 +35,8 @@ namespace GraphQL_Server
 
         private Func<GraphQLServer, HttpListenerRequest, ClientContext> _clientContextFunc = DefaultClientContextFn;
 
+        private InteractiveSchema _schema;
+
         public GraphQLServer(int port = 8080)
         {
             _httpListener = new HttpListener();
@@ -41,6 +45,16 @@ namespace GraphQL_Server
 
             // Set up request handle thread
             _handleThread = new Thread(HandleRequests);
+
+            // Set up types
+            try
+            {
+                GraphQLType.RegisterIntrinsic();
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e);
+            }
         }
 
         /// <summary>
@@ -48,8 +62,14 @@ namespace GraphQL_Server
         /// </summary>
         public void Start()
         {
+            lock (_controllers.SyncRoot)
+            {
+                _schema = new InteractiveSchema(_controllers);
+            }
+
             _httpListener.Start();
             _handleThread.Start();
+
             Console.WriteLine("Listening!");
         }
 
@@ -70,7 +90,6 @@ namespace GraphQL_Server
         {
             lock (_controllers.SyncRoot)
             {
-                controller.server = this;
                 _controllers.Add(controller);
             }
         }
@@ -79,13 +98,12 @@ namespace GraphQL_Server
         /// Add multiple controllers to a server
         /// </summary>
         /// <param name="controllerList"> List of controllers to add</param>
-        public void AddController(IEnumerable<GraphQLController> controllerList)
+        public void AddControllers(IEnumerable<GraphQLController> controllerList)
         {
             lock (_controllers.SyncRoot)
             {
                 foreach (var controller in controllerList)
                 {
-                    controller.server = this;
                     _controllers.Add(controller);
                 }
             }
@@ -100,7 +118,6 @@ namespace GraphQL_Server
         {
             lock (_controllers.SyncRoot)
             {
-                controller.server = null;
                 _controllers.Remove(controller);
             }
         }
@@ -130,15 +147,47 @@ namespace GraphQL_Server
                 }
 
                 GraphQLContext ctx = new GraphQLContext() {HttpContext = context, Client = clientContext};
-                ThreadPool.QueueUserWorkItem(new WaitCallback(ProcessGraphQLRequest), ctx);
+                ThreadPool.QueueUserWorkItem(ProcessGraphQLRequest, ctx);
             }
         }
 
-        private static void ProcessGraphQLRequest(Object arg)
+        private void ProcessGraphQLRequest(Object arg)
         {
             GraphQLContext ctx = (GraphQLContext) arg;
             var body = new StreamReader(ctx.HttpContext.Request.InputStream).ReadToEnd();
-            Console.WriteLine(ctx.HttpContext.Request);
+            JArray errors = JArray.FromObject(new Object[] { });
+            var output = new Dictionary<string, JToken>();
+            try
+            {
+                var parsed = Parser.ParseRequest(body);
+
+                lock (_schema)
+                {
+                    foreach (var node in parsed)
+                    {
+                        var resp = _schema.Call(node);
+                        if (resp != null)
+                            foreach (var v in resp)
+                            {
+                                output[v.Key] = v.Value;
+                            }
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                errors.Add(JObject.FromObject(new {message = e.Message, stack = e.StackTrace}));
+            }
+
+
+            var data = JsonConvert.SerializeObject(new {data = output, errors});
+            Console.WriteLine(data);
+            byte[] buffer = System.Text.Encoding.UTF8.GetBytes(data);
+            var response = ctx.HttpContext.Response;
+            response.ContentLength64 = buffer.Length;
+            var outputStream = response.OutputStream;
+            outputStream.Write(buffer, 0, buffer.Length);
+            outputStream.Close();
         }
     }
 }
