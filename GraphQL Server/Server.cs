@@ -156,7 +156,7 @@ namespace GraphQL_Server
             GraphQLContext ctx = (GraphQLContext) arg;
             var body = new StreamReader(ctx.HttpContext.Request.InputStream).ReadToEnd();
             JArray errors = JArray.FromObject(new Object[] { });
-            var output = new Dictionary<string, JToken>();
+            var data = new JObject();
             try
             {
                 var parsed = Parser.ParseRequest(body);
@@ -168,9 +168,7 @@ namespace GraphQL_Server
                         var resp = _schema.Call(node);
                         if (resp != null)
                             foreach (var v in resp)
-                            {
-                                output[v.Key] = v.Value;
-                            }
+                                data.Merge(resp);
                     }
                 }
             }
@@ -180,9 +178,9 @@ namespace GraphQL_Server
             }
 
 
-            var data = JsonConvert.SerializeObject(new {data = output, errors});
+            var serialized = JsonConvert.SerializeObject(new {data = data, errors});
             Console.WriteLine(data);
-            byte[] buffer = System.Text.Encoding.UTF8.GetBytes(data);
+            byte[] buffer = System.Text.Encoding.UTF8.GetBytes(serialized);
             var response = ctx.HttpContext.Response;
             response.ContentLength64 = buffer.Length;
             var outputStream = response.OutputStream;

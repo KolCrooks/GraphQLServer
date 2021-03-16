@@ -44,10 +44,10 @@ namespace GraphQL_Server
         }
 
         [FieldResolver(Name = "Towns")]
-        public Town[] Towns([Root] JObject root)
+        public Town[] Towns([Root] Country root)
         {
-            if (_towns.ContainsKey(root["Id"].Value<string>()))
-                return _towns[root["Id"].Value<string>()].ToArray();
+            if (_towns.ContainsKey(root.Id))
+                return _towns[root.Id].ToArray();
 
             return new Town[] { };
         }

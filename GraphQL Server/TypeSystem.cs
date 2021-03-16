@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using GraphQL_Server.Attributes;
+using Newtonsoft.Json.Linq;
 
 namespace GraphQL_Server
 {
@@ -14,10 +15,17 @@ namespace GraphQL_Server
         /// </summary>
         public class GQLEnum : GraphQLType
         {
-            public HashSet<string> Names { get; } = new();
+            public Dictionary<string, object> Names { get; } = new();
 
             public GQLEnum(Type typeObject, string name) : base(typeObject, name)
             {
+            }
+
+            public override bool Validate(JToken against)
+            {
+                return (against.Type == JTokenType.String || against.Type == JTokenType.Integer) &&
+                       (Names.ContainsValue(against.Value<string>()) ||
+                        Names.ContainsValue(against.Value<int>()));
             }
         }
 
@@ -28,27 +36,52 @@ namespace GraphQL_Server
         {
             public HashSet<GQLTypeInstance> Fields { get; } = new();
 
-            public List<FieldNode> GetFieldsTree()
+            public List<RequestNode> GetFieldsTree()
             {
-                List<FieldNode> output = new();
+                List<RequestNode> output = new();
                 foreach (var v in Fields)
                 {
                     if (v.type is GQLInterface)
                     {
                         output.Add(new()
-                            {fields = ((GQLInterface) v.type).GetFieldsTree(), name = v.Name, nodeType = v.type});
+                            {Fields = ((GQLInterface) v.type).GetFieldsTree(), Name = v.Name, NodeType = v.type});
                     }
                     else
                     {
-                        output.Add(new() {name = v.Name, nodeType = v.type});
+                        output.Add(new() {Name = v.Name, NodeType = v.type});
                     }
                 }
 
                 return output;
             }
 
+
             public GQLInterface(Type typeObject, string name) : base(typeObject, name)
             {
+            }
+
+            public override bool Validate(JToken against)
+            {
+                if (!(against is JObject))
+                    return false;
+
+                foreach (var f in Fields)
+                {
+                    if (f.isArray)
+                    {
+                        if (against[f.Name].Type != JTokenType.Array)
+                            return false;
+
+                        foreach (var v in against[f.Name])
+                            if (!f.type.Validate(v))
+                                return false;
+                    }
+
+                    if (!f.type.Validate(against[f.Name]))
+                        return false;
+                }
+
+                return true;
             }
         }
 
@@ -60,6 +93,11 @@ namespace GraphQL_Server
             public Int() : base(typeof(int), "Int")
             {
             }
+
+            public override bool Validate(JToken against)
+            {
+                return against.Type == JTokenType.Integer;
+            }
         }
 
         /// <summary>
@@ -69,6 +107,11 @@ namespace GraphQL_Server
         {
             public Float() : base(typeof(float), "Float")
             {
+            }
+
+            public override bool Validate(JToken against)
+            {
+                return against.Type == JTokenType.Float || against.Type == JTokenType.Integer;
             }
         }
 
@@ -80,6 +123,11 @@ namespace GraphQL_Server
             public String() : base(typeof(String), "String")
             {
             }
+
+            public override bool Validate(JToken against)
+            {
+                return against.Type == JTokenType.String || against.Type == JTokenType.Guid;
+            }
         }
 
         /// <summary>
@@ -89,6 +137,11 @@ namespace GraphQL_Server
         {
             public Boolean() : base(typeof(bool), "Boolean")
             {
+            }
+
+            public override bool Validate(JToken against)
+            {
+                return against.Type == JTokenType.Boolean;
             }
         }
 
@@ -101,6 +154,11 @@ namespace GraphQL_Server
             {
                 OverrideSameType = true;
             }
+
+            public override bool Validate(JToken against)
+            {
+                return against.Type == JTokenType.String || against.Type == JTokenType.Guid;
+            }
         }
 
         /// <summary>
@@ -110,6 +168,12 @@ namespace GraphQL_Server
         {
             public Null() : base(typeof(void), "null")
             {
+            }
+
+            public override bool Validate(JToken against)
+            {
+                return against.Type == JTokenType.Null || against.Type == JTokenType.Undefined ||
+                       against.Type == JTokenType.None;
             }
         }
     };
@@ -267,10 +331,11 @@ namespace GraphQL_Server
                 throw new Exception($"{T.Name} is missing the GQLType Tag!");
 
             var names = T.GetEnumNames();
+            var vals = T.GetEnumValues();
             var customEnum = new GraphQLTypeIntrinsic.GQLEnum(T, T.Name);
 
-            foreach (var name in names)
-                customEnum.Names.Add(name);
+            for (var i = 0; i < names.Length; i++)
+                customEnum.Names[names[i]] = vals.GetValue(i);
 
             return customEnum;
         }
@@ -285,5 +350,7 @@ namespace GraphQL_Server
             empty = new GraphQLTypeIntrinsic.Null();
             empty = null;
         }
+
+        public abstract bool Validate(JToken against);
     }
 }

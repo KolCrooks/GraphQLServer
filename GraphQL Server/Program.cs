@@ -11,6 +11,7 @@ namespace GraphQL_Server
         {
             GraphQLServer server = new GraphQLServer();
             server.AddController(new CountryController());
+            server.AddController(new PopulationController());
             server.Start();
         }
     }

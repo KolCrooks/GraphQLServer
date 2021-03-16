@@ -28,240 +28,86 @@ namespace GraphQL_Server
         }
     }
 
-    public class ControllerMethod
-    {
-        public MethodInfo Source { get; set; }
-        private List<(Arg arg, ParameterInfo param)> _cachedArgs;
-
-        public List<(Arg arg, ParameterInfo param)> Args
-        {
-            get
-            {
-                if (_cachedArgs != null)
-                    return _cachedArgs;
-                _cachedArgs = new List<(Arg, ParameterInfo)>();
-
-                var parameter = Source.GetParameters();
-                foreach (var param in parameter)
-                {
-                    var argAttr = param.GetCustomAttribute(typeof(Arg));
-                    if (argAttr != null)
-                        _cachedArgs.Add(((Arg) argAttr, param));
-                }
-
-                return _cachedArgs;
-            }
-        }
-    }
-
     public class CallableController
     {
         public GraphQLController Controller { get; set; }
-        public Dictionary<string, ControllerMethod> Queries { get; set; } = new Dictionary<string, ControllerMethod>();
+        public Dictionary<string, MethodInfo> Queries { get; set; } = new Dictionary<string, MethodInfo>();
 
-        public Dictionary<string, ControllerMethod> Mutations { get; set; } =
-            new Dictionary<string, ControllerMethod>();
+        public Dictionary<string, MethodInfo> Mutations { get; set; } =
+            new Dictionary<string, MethodInfo>();
 
-        public Dictionary<string, ControllerMethod> FieldResolvers { get; set; } =
-            new Dictionary<string, ControllerMethod>();
+        public Dictionary<string, MethodInfo> FieldResolvers { get; set; } =
+            new Dictionary<string, MethodInfo>();
 
         public CallableController(GraphQLController controller)
         {
             Controller = controller;
         }
 
-        public JObject Call(RequestNodes node)
+
+        public MethodInfo FindMethod(string query, QueryType requestType)
         {
-            ControllerMethod method;
-            if (node.Query == null)
-                method = FindMethod(node.Nodes[0].nodeType, node.type);
-            else
-                method = FindMethod(node.Query, node.type);
-
-
-            var methodParams = new List<object>();
-
-            foreach (var a in method.Args)
-            {
-                switch (node.args[a.arg.Name].Type)
-                {
-                    case JTokenType.Boolean:
-                        methodParams.Add(node.args[a.arg.Name].Value<bool>());
-                        break;
-                    case JTokenType.Float:
-                        methodParams.Add(node.args[a.arg.Name].Value<float>());
-                        break;
-                    case JTokenType.String:
-                        methodParams.Add(node.args[a.arg.Name].Value<string>());
-                        break;
-                    case JTokenType.Integer:
-                        methodParams.Add(node.args[a.arg.Name].Value<int>());
-                        break;
-                    case JTokenType.Object:
-                        methodParams.Add(node.args[a.arg.Name].Value<object>());
-                        break;
-                }
-            }
-
-            var found = new JObject();
-            var methodResponse = method.Source.Invoke(Controller, methodParams.ToArray());
-            if (methodResponse == null)
-                return null;
-            found[methodResponse.GetType().Name] = JToken.FromObject(methodResponse);
-            if (node.type == QueryType.MUTATION)
-            {
-                var temp = new JObject();
-                temp[node.Query] = CorrectData(node, found);
-                return temp;
-            }
-
-            return (JObject) CorrectData(node, found);
-        }
-
-        private JToken CorrectData(RequestNodes node, object foundAlready) =>
-            CorrectData(node.Nodes, JToken.FromObject(foundAlready));
-
-        private JToken CorrectData(List<FieldNode> nodes, JToken found)
-        {
-            if (found == null)
-                return null;
-            var output = JObject.FromObject(new { });
-            if (nodes != null)
-                foreach (var n in nodes)
-                {
-                    if (found[n.name] == null)
-                        continue;
-                    if (found[n.name].Type == JTokenType.Null)
-                    {
-                        if (FieldResolvers[n.name] != null)
-                        {
-                            var o = JToken.FromObject(FieldResolvers[n.name].Source
-                                .Invoke(
-                                    Controller,
-                                    new object[]
-                                    {
-                                        found
-                                    }));
-                            if (o is JArray)
-                                output[n.name] = CorrectData(n.fields, (JArray) o);
-                            else
-                            {
-                                output[n.name] = CorrectData(n.fields, o);
-                            }
-                        }
-                    }
-                    else
-                    {
-                        if (found[n.name] is JValue)
-                            output[n.name] = found[n.name];
-                        else
-                            output[n.name] = CorrectData(n.fields, (JToken) found[n.name]);
-                    }
-                }
-            else
-                return found;
-
-            return output;
-        }
-
-        private JArray CorrectData(List<FieldNode> nodes, JArray found)
-        {
-            if (found == null)
-                return null;
-            var output = JArray.FromObject(new object[] { });
-            for (var i = 0; i < found.Count; i++)
-                output.Add(JObject.FromObject(new()));
-
-            if (nodes != null)
-                for (var i = 0; i < found.Count; i++)
-                    foreach (var n in nodes)
-                    {
-                        if (found[i][n.name] == null)
-                            continue;
-                        if (found[i][n.name].Type == JTokenType.Null)
-                        {
-                            if (FieldResolvers[n.name] != null)
-                            {
-                                var o = JToken.FromObject(FieldResolvers[n.name].Source
-                                    .Invoke(
-                                        Controller,
-                                        new object[]
-                                        {
-                                            found
-                                        }));
-                                if (o is JArray)
-                                    output[i][n.name] = CorrectData(n.fields, (JArray) o);
-                                else
-                                {
-                                    output[i][n.name] = CorrectData(n.fields, o);
-                                }
-                            }
-                        }
-                        else
-                        {
-                            if (found[i][n.name] is JValue)
-                                output[i][n.name] = found[i][n.name];
-                            else
-                                output[i][n.name] = CorrectData(n.fields, (JToken) found[i][n.name]);
-                        }
-                    }
-            else
-                return found;
-
-            return output;
-        }
-
-        public ControllerMethod FindMethod(string query, QueryType type)
-        {
-            var loopThrough = Queries;
-            if (type == QueryType.MUTATION)
+            Dictionary<string, MethodInfo> loopThrough;
+            if (requestType == QueryType.MUTATION)
                 loopThrough = Mutations;
+            else if (requestType == QueryType.QUERY)
+                loopThrough = Queries;
+            else if (requestType == QueryType.FIELD)
+                loopThrough = FieldResolvers;
+            else return null;
+
             foreach (var q in loopThrough)
                 if (q.Key == query)
                     return q.Value;
             return null;
         }
 
-        public ControllerMethod FindMethod(GraphQLType gqlType, QueryType requestType)
+        public MethodInfo FindMethod(GraphQLType gqlType, QueryType requestType)
         {
-            var loopThrough = Queries;
+            Dictionary<string, MethodInfo> loopThrough;
             if (requestType == QueryType.MUTATION)
                 loopThrough = Mutations;
+            else if (requestType == QueryType.QUERY)
+                loopThrough = Queries;
+            else if (requestType == QueryType.FIELD)
+                loopThrough = FieldResolvers;
+            else return null;
+
             foreach (var q in loopThrough)
-                if (GraphQLType.FindOrGenerate(q.Value.Source.ReturnType).TypeName == gqlType.TypeName)
+                if (GraphQLType.FindOrGenerate(q.Value.ReturnType).TypeName == gqlType.TypeName)
                     return q.Value;
             return null;
         }
 
-        public List<SerializedQuery> SerializeQueries()
-        {
-            List<SerializedQuery> queries = new List<SerializedQuery>();
-            foreach (var query in Queries)
-            {
-                var serialized = new SerializedQuery();
-                serialized.Name = query.Key;
-                foreach (var (arg, param) in query.Value.Args)
-                    serialized.Params.Add(new GQLTypeInstance
-                    {
-                        Name = param.Name,
-                        type = GraphQLType.FindOrGenerate(param.GetType()),
-                        isArray = param.GetType().IsArray
-                    });
-                var returnType = new GQLTypeInstance
-                {
-                    Name = null,
-                    Nullable = false,
-                    type = GraphQLType.FindOrGenerate(query.Value.Source.ReturnType),
-                    isArray = query.Value.Source.ReturnType.IsArray
-                };
-
-                serialized.returnType = returnType;
-
-                queries.Add(serialized);
-            }
-
-            return queries;
-        }
+        // public List<SerializedQuery> SerializeQueries()
+        // {
+        //     List<SerializedQuery> queries = new List<SerializedQuery>();
+        //     foreach (var query in Queries)
+        //     {
+        //         var serialized = new SerializedQuery();
+        //         serialized.Name = query.Key;
+        //         foreach (var (arg, param) in query.Value.Args)
+        //             serialized.Params.Add(new GQLTypeInstance
+        //             {
+        //                 Name = param.Name,
+        //                 type = GraphQLType.FindOrGenerate(param.GetType()),
+        //                 isArray = param.GetType().IsArray
+        //             });
+        //         var returnType = new GQLTypeInstance
+        //         {
+        //             Name = null,
+        //             Nullable = false,
+        //             type = GraphQLType.FindOrGenerate(query.Value.Source.ReturnType),
+        //             isArray = query.Value.Source.ReturnType.IsArray
+        //         };
+        //
+        //         serialized.returnType = returnType;
+        //
+        //         queries.Add(serialized);
+        //     }
+        //
+        //     return queries;
+        // }
     }
 
     public class InteractiveSchema
@@ -269,23 +115,73 @@ namespace GraphQL_Server
         private HashSet<CallableController> _controllers { get; } = new();
 
 
-        public JObject Call(RequestNodes node)
+        public JObject Call(RequestNode node, object parentObj = null)
         {
             foreach (var c in _controllers)
             {
-                if (node.Query == null)
+                MethodInfo method = null;
+                switch (node.QueryType)
                 {
-                    if (c.FindMethod(node.Nodes[0].nodeType, node.type) != null)
-                        return c.Call(node);
+                    case QueryType.FIELD:
+                        method = c.FindMethod(node.NodeType, QueryType.FIELD);
+                        break;
+
+                    case QueryType.QUERY:
+                        // Implicit Call
+                        if (node.implicitQuery)
+                            method = c.FindMethod(node.NodeType, QueryType.QUERY);
+                        else // Explicit Call
+                            method = c.FindMethod(node.Name, QueryType.QUERY);
+                        break;
+                    case QueryType.MUTATION:
+                        method = c.FindMethod(node.Name, QueryType.QUERY);
+                        break;
+                    case QueryType.QUERYGROUP:
+                    case QueryType.MUTATIONGROUP:
+                        JObject r = new JObject();
+
+                        foreach (var f in node.Fields)
+                            r.Merge(Call(f));
+
+                        return r;
+                }
+
+                if (method == null)
+                    continue;
+                var args = MapArgs(node.Args, method, parentObj);
+                var self = method.Invoke(c.Controller, args);
+                JToken obj = JToken.FromObject(self);
+                JObject ret = new JObject();
+
+                if (self.GetType().IsArray)
+                {
+                    ret[node.Name] = new JArray();
+                    for (int i = 0; i < ((object[]) self).Length; i++)
+                    {
+                        if (obj[i] is JObject)
+                            foreach (var field in node.Fields)
+                                if (obj[i][field.Name].Type == JTokenType.Null)
+                                    ((JObject) obj[i]).Merge(Call(field, ((object[]) self)[i]));
+
+                        obj[i] = PergeTree(obj[i], node);
+                        ((JArray) ret[node.Name]).Add(obj[i]);
+                    }
                 }
                 else
                 {
-                    if (c.FindMethod(node.Query, node.type) != null)
-                        return c.Call(node);
+                    if (obj is JObject)
+                        foreach (var field in node.Fields)
+                            if (obj[field.Name].Type == JTokenType.Null)
+                                ((JObject) obj).Merge(Call(field, self));
+
+                    obj = PergeTree(obj, node);
+                    ret[node.Name] = obj;
                 }
+
+                return ret;
             }
 
-            throw new Exception("Unable to find request!");
+            return null;
         }
 
 
@@ -308,24 +204,75 @@ namespace GraphQL_Server
 
                         if (controllerMethod.GetCustomAttribute(typeof(Query)) != null)
                         {
-                            var cMethod = new ControllerMethod {Source = controllerMethod};
-
-                            callableController.Queries[controllerMethod.Name] = cMethod;
+                            callableController.Queries[controllerMethod.Name] = controllerMethod;
                         }
                         else if (controllerMethod.GetCustomAttribute(typeof(Mutation)) != null)
                         {
-                            var cMethod = new ControllerMethod {Source = controllerMethod};
-                            callableController.Mutations[controllerMethod.Name] = cMethod;
+                            callableController.Mutations[controllerMethod.Name] = controllerMethod;
                         }
                         else if (controllerMethod.GetCustomAttribute(typeof(FieldResolver)) != null)
                         {
-                            var cMethod = new ControllerMethod {Source = controllerMethod};
-                            callableController.FieldResolvers[controllerMethod.Name] = cMethod;
+                            callableController.FieldResolvers[controllerMethod.Name] = controllerMethod;
                         }
                     }
                 }
 
                 _controllers.Add(callableController);
+            }
+        }
+
+        private object[] MapArgs(Dictionary<string, JToken> providedArgs, MethodInfo method, object root = null)
+        {
+            List<object> args = new List<object>();
+            foreach (var param in method.GetParameters())
+            {
+                foreach (var attr in param.GetCustomAttributes())
+                {
+                    if (attr is Arg)
+                    {
+                        GraphQLType type;
+                        type = ((Arg) attr).TypeOverride ?? GraphQLType.FindOrGenerate(param.ParameterType);
+                        var val = providedArgs[((Arg) attr).Name];
+
+                        if (type.Validate(val))
+                            args.Add(Convert.ChangeType(val, type.TypeRef));
+                    }
+                    else if (attr is Root)
+                    {
+                        args.Add(root);
+                    }
+                }
+            }
+
+            return args.ToArray();
+        }
+
+        private JToken PergeTree(JToken token, RequestNode compare)
+        {
+            if (compare.Fields.Count == 0)
+                return token;
+            if (token is JObject)
+            {
+                JObject output = new JObject();
+                foreach (var f in (JObject) token)
+                {
+                    var field = compare.Fields.Find(i => i.Name == f.Key);
+                    if (field != null)
+                        output[f.Key] = PergeTree(f.Value, field);
+                }
+
+                return output;
+            }
+            else if (token is JArray)
+            {
+                JArray output = new JArray();
+                foreach (var treeItem in (JArray) token)
+                    output.Add(PergeTree(treeItem, compare));
+                return output;
+            }
+            else
+            {
+                return token;
             }
         }
     }

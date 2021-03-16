@@ -47,6 +47,7 @@
         <Compile Include="Attributes.cs" />
         <Compile Include="Controller.cs" />
         <Compile Include="Parser.cs" />
+        <Compile Include="PopulationController.cs" />
         <Compile Include="Request.cs" />
         <Compile Include="Server.cs" />
         <Compile Include="Program.cs" />
