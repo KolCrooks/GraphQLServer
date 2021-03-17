@@ -62,7 +62,6 @@ namespace GraphQL_Server
     {
         public static List<RequestNode> ParseRequest(String code)
         {
-            Console.WriteLine(code);
             var request = JsonConvert.DeserializeObject<ServerRequest>(code);
             List<RequestNode> output = new List<RequestNode>();
 
@@ -72,7 +71,6 @@ namespace GraphQL_Server
             foreach (var g in queryGroups)
                 output.Add(GetGroupInfo(g, request.variables));
 
-            Console.WriteLine("PARSED!");
             return output;
         }
 

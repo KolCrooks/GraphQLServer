@@ -146,46 +146,59 @@ namespace GraphQL_Server
                     clientContext = _clientContextFunc(this, context.Request);
                 }
 
+
                 GraphQLContext ctx = new GraphQLContext() {HttpContext = context, Client = clientContext};
+
                 ThreadPool.QueueUserWorkItem(ProcessGraphQLRequest, ctx);
             }
         }
 
         private void ProcessGraphQLRequest(Object arg)
         {
-            GraphQLContext ctx = (GraphQLContext) arg;
-            var body = new StreamReader(ctx.HttpContext.Request.InputStream).ReadToEnd();
-            JArray errors = JArray.FromObject(new Object[] { });
-            var data = new JObject();
             try
             {
-                var parsed = Parser.ParseRequest(body);
-
-                lock (_schema)
+                GraphQLContext ctx = (GraphQLContext) arg;
+                var body = new StreamReader(ctx.HttpContext.Request.InputStream).ReadToEnd();
+                JArray errors = JArray.FromObject(new Object[] { });
+                var data = new JObject();
+                try
                 {
-                    foreach (var node in parsed)
+                    var parsed = Parser.ParseRequest(body);
+
+                    lock (_schema)
                     {
-                        var resp = _schema.Call(node);
-                        if (resp != null)
-                            foreach (var v in resp)
+                        foreach (var node in parsed)
+                        {
+                            var resp = _schema.Call(node);
+                            if (resp != null)
                                 data.Merge(resp);
+                        }
                     }
                 }
+                catch (Exception e)
+                {
+                    errors.Add(JObject.FromObject(new {message = e.Message, stack = e.StackTrace}));
+                }
+
+                var toSerialize = new JObject();
+                toSerialize["data"] = data;
+                if (errors.Count > 0)
+                    toSerialize["errors"] = errors;
+                var serialized = JsonConvert.SerializeObject(toSerialize);
+
+                byte[] buffer = System.Text.Encoding.UTF8.GetBytes(serialized);
+                var response = ctx.HttpContext.Response;
+                response.StatusCode = errors.Count == 0 ? 200 : 206;
+                response.ContentLength64 = buffer.Length;
+                response.Headers.Add("Content-Type", "application/json");
+                var outputStream = response.OutputStream;
+                outputStream.Write(buffer, 0, buffer.Length);
+                outputStream.Close();
             }
             catch (Exception e)
             {
-                errors.Add(JObject.FromObject(new {message = e.Message, stack = e.StackTrace}));
+                Console.WriteLine(e);
             }
-
-
-            var serialized = JsonConvert.SerializeObject(new {data = data, errors});
-            Console.WriteLine(data);
-            byte[] buffer = System.Text.Encoding.UTF8.GetBytes(serialized);
-            var response = ctx.HttpContext.Response;
-            response.ContentLength64 = buffer.Length;
-            var outputStream = response.OutputStream;
-            outputStream.Write(buffer, 0, buffer.Length);
-            outputStream.Close();
         }
     }
 }

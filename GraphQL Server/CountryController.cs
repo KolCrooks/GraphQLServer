@@ -39,7 +39,6 @@ namespace GraphQL_Server
             [Arg("Id", typeof(GraphQLTypeIntrinsic.ID))]
             string id)
         {
-            Console.WriteLine("HI");
             return _countries.Find(c => c.Id == id);
         }
 

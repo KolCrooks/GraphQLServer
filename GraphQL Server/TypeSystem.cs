@@ -34,7 +34,17 @@ namespace GraphQL_Server
         /// </summary>
         public class GQLInterface : GraphQLType
         {
-            public HashSet<GQLTypeInstance> Fields { get; } = new();
+            private HashSet<GQLTypeInstance> _fields = new HashSet<GQLTypeInstance>();
+
+            public HashSet<GQLTypeInstance> Fields
+            {
+                get { return _fields; }
+                set
+                {
+                    _fields = value;
+                    // _fields.Add(new GQLTypeInstance {type = new String(), Name = "__TypeName"});
+                }
+            }
 
             public List<RequestNode> GetFieldsTree()
             {
