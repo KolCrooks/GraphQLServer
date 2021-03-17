@@ -292,8 +292,8 @@ namespace GraphQL_Server
             if (!(T.IsClass || T.IsInterface || T.IsEnum))
                 throw new Exception($"{T.Name} is an unsupported GQL type!");
 
-            if (T.GetCustomAttribute(typeof(GQLTypeDefinition)) == null)
-                throw new Exception($"{T.Name} is missing the GQLType Tag!");
+            // if (T.GetCustomAttribute(typeof(GQLTypeDefinition)) == null)
+            //     throw new Exception($"{T.Name} is missing the GQLType Tag!");
 
 
             if (T.IsClass || T.IsInterface)

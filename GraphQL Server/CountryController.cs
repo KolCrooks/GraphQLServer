@@ -5,14 +5,14 @@ using Newtonsoft.Json.Linq;
 
 namespace GraphQL_Server
 {
-    [GQLTypeDefinition]
+    // [GQLTypeDefinition]
     public class Town
     {
         public string Name { get; set; }
         public string Id { get; set; }
     }
 
-    [GQLTypeDefinition]
+    // [GQLTypeDefinition]
     public class Country
     {
         public int Number { get; set; }
